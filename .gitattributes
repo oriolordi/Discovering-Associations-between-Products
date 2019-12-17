@@ -1,4 +1,1 @@
-*.r linguist-detectable=true
-*.html linguist-detectable=false
-*.rmd linguist-detectable=false
-*.tex linguist-detectabl=false
+* linguist-language=R
