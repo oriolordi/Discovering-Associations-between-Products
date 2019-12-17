@@ -1,0 +1,359 @@
+---
+title: "Discovering associations between products"
+author: "Alex Crespo & Oriol Ordi"
+date: "12/10/2019"
+output: html_document
+fig_caption: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+```{r, echo = FALSE, , include = FALSE}
+# DATASET TASK 3
+# Predict the sales in four different types of products
+# (PC, Laptops, Netbooks, Smartphones)
+# while assessing the effects service and customer reviews have on sales
+# And, of course, predict sales for the four types in the newproducts# Load necessary packages ####
+library(readr)
+library(ggplot2)
+library(lattice)
+library(corrplot)
+library(e1071)
+library(randomForest)
+library(caret)
+library(dplyr)
+library(tidyverse)
+library(RColorBrewer)
+library(reshape)# Load the datasets ####
+EPA <- read_csv('data/existingproductattributes2017.csv') #ORI
+NPA <- read_csv('data/newproductattributes2017.csv') #ORI
+#EPA <- read_csv("/home/alex/Desktop/Projects/Ubiqum/Task_3/Data/Existing.csv")#Alex
+#NPA <- read_csv("/home/alex/Desktop/Projects/Ubiqum/Task_3/Data/New.csv")#Alex
+
+EPA <- data.frame(EPA)
+NPA <- data.frame(NPA)# Data exploration ####
+# There are 15 observations that contain missing values (NA), all of them in the BestSellersRank column
+# The bestsellers column will, thus, be removed completely
+EPA$BestSellersRank <- NULL
+# Remove outliers from the dependent variable
+OutlierDataSet <- EPA
+OutlierColumn <- OutlierDataSet[,ncol(OutlierDataSet)]
+OutlierDataSet <- OutlierDataSet[OutlierColumn > (quantile(OutlierColumn)[[2]] - 1.5*IQR(OutlierColumn)),]
+OutlierDataSet <- OutlierDataSet[OutlierColumn < (quantile(OutlierColumn)[[4]] + 1.5*IQR(OutlierColumn)),]
+#EPA <- OutlierDataSet# Check for duplicated observations
+
+# There are duplicated values with different prices
+# The duplicated values will be merged into one single value and the price will be the mean of the duplicated values
+# Keep one of the duplicated observations (the first one, for example)
+duplicatedproductsvalues <- EPA[duplicated(EPA[,-c(2,3)]),][1,]
+# Calculate the mean of the price of the duplicated observations
+mean_duplicated <- mean(EPA$Price[duplicated(EPA[-c(2,3)])])
+# Remove the duplicated observations
+EPA <- EPA[!duplicated(EPA[-c(2,3)]),]
+# Add one of the duplicated observations (the first one that had been saved previously)
+EPA <- rbind(EPA,duplicatedproductsvalues)
+# Change the price to the mean of the price of the duplicated values
+EPA[nrow(EPA),'Price'] <- mean_duplicated# Check for rows with missing reviews ####
+
+# There are 3 rows with missing x4,x3,x2,x1 reviews that will be removed
+EPA <- EPA[-which(EPA$x4StarReviews==0 & EPA$x3StarReviews == 0 & EPA$x2StarReviews == 0 & EPA$x1StarReviews == 0),]# Check the variables ####
+EPA <- EPA[-which(EPA$ProductNum == 118),]
+EPA <- EPA[-which(EPA$ProductNum == 123),]
+EPA <- EPA[-which(EPA$ProductNum == 134),]
+EPA <- EPA[-which(EPA$ProductNum == 135),]# Placing the dependent variable in the first position ####
+EPA <- subset(EPA, select=c(ncol(EPA),1:(ncol(EPA)-1)))# Check correlation
+# Dummify with feature engineering
+newDataFrame <- dummyVars(" ~ .", data = EPA)
+EPA_dummy <- data.frame(predict(newDataFrame, newdata = EPA))
+CorrData <- cor(EPA_dummy)
+
+# Look for high correlation with the dependent variable and remove attributes
+corrDataFrame <- data.frame(CorrData)
+corrDataFrame[lower.tri(corrDataFrame,diag=TRUE)] <- NA
+correlations <- corrDataFrame %>%
+  rownames_to_column("id") %>%
+  gather(key = "key", value = "value", -id) %>%
+  filter(value > 0.85 | value < -0.85)
+```
+
+```{r, echo = FALSE, include = FALSE}
+#TASK 4
+pacman:: p_load(ggplot2, caret,readxl, arules, arulesViz, shiny, devtools)
+
+#Data importing####
+tr_product <- read.transactions('data/ElectronidexTransactions2017.csv', format='basket', sep=',', rm.duplicates = FALSE) #ORI
+ptype <- read_excel('data/products2.xlsx',col_names = TRUE) #ORI
+#tr_product <- read.transactions("/home/alex/Desktop/Projects/Ubiqum/Task_4/Data/ElectronidexTransactions2017.txt",format = "basket", header = FALSE, sep="," ,cols = NULL, rm.duplicates = FALSE) #ALEX
+#ptype <-  read_excel("/home/alex/Desktop/Projects/Ubiqum/Task_4/Data/products.xlsx") #ALEX
+
+#Empty transaction
+  tr_product <- tr_product[-(which(size(tr_product)==0))]
+
+#Creating a dataset for product type####
+  label <- vector(mode="character", length = length(tr_product@itemInfo$labels))
+  for (i in 1:length(tr_product@itemInfo$labels)) {
+    label[i] <- as.character(ptype[which(ptype[,1] == tr_product@itemInfo$labels[i]),3]) #2 for original ptypes, 3 for modified
+  }
+  tr_ptype <- aggregate(tr_product, label)
+
+
+```
+
+# Introduction
+Blackwell Electronics' board of directors is considering acquiring Electronidex, a start-up electronics online retailer. The company's transactions of last thrity days are studied to figure out whether the adquisition would be positive or not for Blackwell Electronics.
+
+The aim of the present report is to provide information to Blackwell's board about Electronidex business. For this reason, Electronidex transactions are studied in order to find assosiations with the sold items to:
+
+* Identify purchasing patterns.
+* Understand the clientele of Electronidex.
+* Find out if Blackweel would benefit from selling any of Electronidex's items.
+
+# Data exploration
+The data provided and used for the further analsisys in the present task consists of one data set with all the transactions of Electronidex for the last 30 days and a list of all the products sold, classified per category. The data set contains 9836 transactions, each of them specifying only the name of the products bought. In the last 30 days, Electronidex sold a total of 125 diferent products, clasified in 16 categories. However, the categories have been renamed adjusting to Blackwell's categories for a better and easier comparision.  
+
+The dataset with Blackwells current porfolio has also been used, containing information on the sales volume of the products sold by Blackwell.
+It has also been used 
+
+# Blackwell's business
+
+To assess whether the acquisition of Electronidex would be beneficial to Blackwell, first, an analysis on Blackwell's market share is needed.  
+To do so, the product types sold by Blackwell are analyzed in terms of volume of sales, and in terms of profit.
+
+The graphs (figure 1 and 2) show some interesting insight on the performance of Blackwell Electronics. The top cateogries, by far, in terms of volume of sales are **Accessories** and **Game Console**. However, the **Accessories** represent a low percentage of the profit. Instead, the **Display** and the **Game Console** are the categories that bring the most benefit to Blackwell according to the profit
+
+
+```{r fig.cap= "Figure 1. Plot of the volume of sales by product type of Blackwell Electronics." , echo= FALSE, fig.align= "center"}
+# Plot the volume of sales by product type, colored by product type ####
+EPA2 <- aggregate(EPA$Volume, by=list(Category=EPA$ProductType), FUN = sum)
+ggplot(EPA2, aes(x=reorder(Category, -x), y = x, fill = Category)) +
+  geom_col(position = 'dodge') +
+  theme(axis.text.x = element_text(angle = 90)) +
+  xlab('Product Type') +
+  ylab('Volume of sales') +
+  labs(fill = 'Product Type')
+```
+
+
+
+
+```{r fig.cap= "Figure 2. Plot of the profit of sales by product type of Blackwell Electronics.", echo= FALSE, fig.align= "center"}
+# Plot the profit of sales by product type, colored by product type ####
+EPA$Profit <- EPA$Volume * EPA$Price * EPA$ProfitMargin
+EPA2 <- aggregate(EPA$Profit, by=list(Category=EPA$ProductType), FUN = sum)
+ggplot(EPA2, aes(x=reorder(Category, -x), y = x, fill = Category)) +
+  geom_col(position = 'dodge') +
+  theme(axis.text.x = element_text(angle = 90)) +
+  xlab('Product Type') +
+  ylab('Profit') +
+  labs(fill = 'Product Type')
+
+```
+
+
+# Electronidex analysis
+
+The next step in assessing whether the acquisition of Electronidex would be beneficial to Blackwell, an analysis on Electronidex's sales is needed.  
+It must be mentioned again that the data on Electronidex's transactions accounts for only 1 month of the company's activities. Therefore, it has to be taken into account that the results and the conclusions drawn in this report will be limited by that fact.
+
+### Basic analysis and analysis by categories
+
+As a first step in the analysis of Electronidex's transactions, the frequency in which items are bought is analyzed, to know what are the top products that the company is selling.
+
+As the figure 3 shows, when considering all of Electronidex's transactions, the products that are sold the most are the following:  
+  
+1. iMac  
+2. HP Laptop  
+3. CYBERPOWER Gamer Desktop  
+4. Apple Earpods
+
+If, instead, the product types (categories) are considered, the figure 4 shows the dominant categories:
+**Desktops** and **Laptops** are the main categories that Electronidex sells.
+
+
+```{r fig.cap= "Figure 3. Item frequency plot for Electronidex 30 days transactions.", echo=FALSE, fig.align= "center"}
+itemFrequencyPlot(tr_product, topN=25, type='absolute',col=brewer.pal(8,'Pastel2'), ylab='Frequency', cex=1)
+
+```
+
+
+
+```{r fig.cap= "Figure 4. Product type frequency plot for Electronidex 30 days transactions.",echo=FALSE, fig.align= "center"}
+itemFrequencyPlot(tr_ptype, topN=nrow(itemInfo(tr_ptype)), type='absolute',col=brewer.pal(8,'Pastel2'), ylab='Frequency', cex=1)
+```
+
+
+
+### Initial asociacions rules
+
+Taking the totality of the transactions, the _apriori_ algorithm is used to find association rules that can help understand what products the customers of Electronidex are buying together, to see if they fit with the products that Blackwell is selling.
+
+A very interesting fact can be seen when trying to find association rules in the Electonidex transactions. Very often, **desktops** and **laptops** are associated with other desktops and laptops, meaning that there are customers buying multiple desktop computers or laptops.  
+
+From this fact it can be concluded that some of the customers of Electronidex are not final customers, but businesses instead.  
+
+Thus, the two populations must be separated in order to truly analyze the patterns of each population and understand the customers of Electronidex.
+
+
+```{r , include = FALSE, echo = FALSE}
+#Creating datasets for distributor and consumer####
+#Defining the matrix of distributors
+  transactions_dataframe <- as.data.frame(t(as.matrix((tr_product@data))))
+  colnames(transactions_dataframe)<- label
+  types <- unique(label)
+  types <- cbind(types, c(2, 3, 2, 2, 2, 3, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2)) #For ptypes = 3 (Mouse & Keyboard 3 or 4 -- Accesories 2-3)
+  distr <- vector(mode="logical", nrow(transactions_dataframe))
+  for (i in 1:nrow(transactions_dataframe)){
+    for (j in 1:length(types[,1])){
+         total = length(which(transactions_dataframe[i,which(colnames(transactions_dataframe)==types[j,1])] == TRUE)) #Look for columns with same name and sum the trues. 
+         if (total >= types[j,2]){ #Distributor condition defined in dataframe types
+           distr[i] = TRUE #If the trues are more than the distributor condition then TRUE in the matrix
+         }
+    }
+    total = length(which(transactions_dataframe[i,which(colnames(transactions_dataframe)==types[4,1])] == TRUE)) #Laptop (ptypes = 3 -> j = 4
+    total = total + length(which(transactions_dataframe[i,which(colnames(transactions_dataframe)==types[5,1])] == TRUE)) #Desktop (ptypes =3 -> j = 5)
+    total = total + length(which(transactions_dataframe[i,which(colnames(transactions_dataframe)==types[7,1])] == TRUE)) # Pc Gaming (ptypes = 3 -> j = 7)
+    if (total >= 2) {
+      distr[i] <- TRUE
+    }
+  }
+sum(distr)
+  
+#Function to verify the distribution
+  distribution <- function (trans) {
+    distribution_index <- vector(mode="integer", length =length(trans))
+    for (i in 1:length(distribution_index)) {
+      distribution_index[i] <- size(trans[i])
+    }
+    ggplot()+ aes(distribution_index) +
+      geom_bar(color = "blue", fill = "white")
+      #geom_histogram(color="blue", binwidth = 1, fill="white",)
+  }
+ #Matrix creation and outlier elimination
+  #Product-Consumers
+  tr_product_cons <- tr_product[!distr]
+  tr_product_cons <- tr_product_cons[-which(size(tr_product_cons) > 8)] #Remove outliers
+  #Product-Distributor
+  tr_product_dist <- tr_product[distr]
+  tr_product_dist <- tr_product_dist[-which(size(tr_product_dist) > 25)]
+  
+  #Type -> consumers
+  tr_ptype_cons <- tr_ptype[!distr]
+  tr_ptype_cons <- tr_ptype_cons[-which(size(tr_ptype_cons) > 8)]
+  
+  #Type -> distributor
+  tr_ptype_dist <- tr_ptype[distr]
+
+```
+
+### Understanding the clientele of Electronidex
+
+The associations found previously show that the clienteles of electronidex business consists of final consumers and also retailers.  
+
+For further analysis, and to separate the two populations, a transaction is considered to be from a retailer when the amount of products bought from the same category is higher than a specific amount defined for each category in the table ..... Moreover, any transaction with more than 1 compueter bought (Laptop, Desktop or Gaming PC) is also considered to be a retailer.
+
+```{r , echo = FALSE}
+colnames(types) <- c("Types", "Restriction")
+knitr::kable(
+  types
+)
+```
+
+#### Consumers - retailers distribution
+
+The transactions data sets are, thus, divided into to two: customers and retailers. The results of the division is shown in the graph of the figure 5. 
+After the populations are separated, it can be seen that around 50% of the transactions of Electronidex are from retailers.
+
+
+```{r fig.cap= "Figure 5. Pie chart for Electronidex transactions clientele.",echo = FALSE, fig.align= "center"}
+  population <- data.frame ( type = c("retailer", "consumers"), transactions = c(sum(distr), length(tr_product)-sum(distr)), prp = c(sum(distr)/length(tr_product), (length(tr_product)-sum(distr))/length(tr_product)) )
+  
+  ggplot( data = population, aes( x= "", y = transactions, fill = type))+
+    geom_bar(stat = "identity", color = "white")+
+    coord_polar("y", start=0)+
+    scale_fill_brewer(palette="Blues")+
+    theme_void()+
+    geom_text(aes(label = paste0(round(transactions),  " - ", round(prp*100), "%")), position = position_stack(vjust = 0.5))
+```
+
+#### Populations distribution of subsets
+
+To verify that the assumptions used to separate the populations don't lead to wrong conclusions, the distribution of the population per transactions is analyzed (number of items per transaction). The graph shows in both cases, that the population follows a normal distribution.  Therefore the data can be used for further analysis. Moreover the outliers have been removed in each of the populations. 
+
+```{r fig.cap= "Figure 6. Distribution of the population of Electronidex customers transactions." , echo = FALSE, fig.align= "center"}
+#Distributions of the populations - consumer
+distribution(tr_product_cons)  
+
+```
+
+```{r fig.cap= "Figure 7. Distribution of the population of Electronidex customers transactions.", echo= FALSE, fig.align= "center"}
+#Distributions of the population - retailer
+distribution(tr_product_dist) 
+```
+
+
+# Populations analysis and rules assosiations
+
+Once both populations have been defined, the next step is to analyze them. To do so, the buying patterns are studied through frequency charts and associations rules for products transactions and product types transactions.
+
+### Consumers
+
+The figure 8 shows the frequency a product type is bought for the transactions of final customers. It can be seen that the product types which are adquired the most for consumers are **Mouse and Keyboards** and **Laptops**, in more than 30% of the transactions. Moreover, **Desktops** and **Headphones** are also aquired frequently, with a frequency higher than 20%. The case of **Gaming PCs** is a stand out. Considering that it is a category of only 3 products out of the 125 total products, the frequency of the category is higher than 10%, which means that 10% of the transactions of final consumers are gaming.  
+
+In the figure 9 the 10 most frequently bought items are shown. It stands out that the top three products are from Apple. It can be seen that Apple Earpods is a relevant product for final consumers, appearing in the 15% of their transactions and lifting the category of headphones to the top 4 in frequency. A simalr case is the CYBERPOWER Gamer Desktop, very succesfull product for Electronidex, which explains the importance of the Gaming category in the company. 
+
+Association rules are studied for the transaction of final consumers population. It is found that Apple earpods are not only a succesfull product but also that they are boosting the sales of other products, like the 3-Button Mouse and the Microsoft Wireless Desktop Keyboard and Mouse (around 20% of the times one of those items is bought, its together with Apple Earpods).  
+It is also found that consumers purchasing Apple MacBook Air are unlikely to purchase Apple Earpods, however with Apple MacBook Pro it's the other way araound. If the company is adquired, some actions should be taken to push the purchase of Earpods when buying Apple MacBook Air, as this laptop is the most frequently bought for final consumers. 
+
+
+```{r fig.cap= "Figure 8. Product type frequency plot for Electronidex 30 days transactions for final customers" , echo = FALSE, fig.align= "center"}
+itemFrequencyPlot(tr_ptype_cons, topN = 16, ylab= "Product Type Frequency", col=brewer.pal(8,'Pastel2'),  cex=1) #Consumers - Product type
+```
+
+```{r fig.cap= "Figure 9. Item frequency plot for Electronidex 30 days transactions for final customers" , echo = FALSE, fig.align= "center"}
+itemFrequencyPlot(tr_product_cons, topN = 10, ylab= "Product Frequency", col=brewer.pal(8,'Pastel2'),   cex=1 )  #Consumers - Product
+```
+
+
+
+### Retailers
+
+The figure 10 shows the frequency chart of product types for the retailers transactions. The frequencies compared to the consumers population are much higher, due to the fact that retailers acquire many products per transaction, therefore the results are not comparable with the consumer transactions frequencies and must be analyzed separately.  
+The graph shows that the categories purchased most frequently for retailers are **Desktops**, **Mouse**, **Keyboards** and **Laptops**. Headphones and Gaming Pc are also higly frequent in retailers purchases.  
+
+In the figure 11 the higher frequently acquired products for retailers can be seen. The top 10 is mainly composed of Desktops, Laptops and Gaming PCs. Any product of the category of Mouse and keyboards appears in the top 10, even though it is the second category with higher frequency, which means that the sales are spread within the portfolio.  
+
+The success of CYBERPOWER Gamer Desktop and Apple Earpods causes the lift of their respective categories in the graph... and, just like with the costumers, it represents an important product for the company. Comparing with the graph of consumers, the apple products are less relevant for retailers.
+
+Inspecting retailers products association rules it is found that retailers which purchase non apple and non gaming computers are highly likely to.  
+
+The assosations rules for retailers products reveal that the retailers could be classified into three groups:
+
+* Non Gaming Pc's retailers:
+  Retailers which mainly buys non gaming pc's. 
+
+* Gaming Pc's retailers:
+  Retailers which mainly buys gaming pc's and also the most sold Pc's iMac and HP Laptop. Monitors Samsung and Acer are mainly bought by Gaming PC's retailers.
+
+
+Monitors Samsung and Acer, and Backlit LED Gaming Keyboard are frequently bought by Gaming Pc's retailers, and the monitors are less likely to be bought by Non Gaming Pc's retailers.  However the preference for pc types of retailers doesn't affect the sales of the rest of products, which are sold indistinctively in any of those groups, except the ones specified previously.
+
+. 
+```{r fig.cap= "Figure 10. Product type frequency plot for Electronidex 30 days transactions for retailers", echo=FALSE, fig.align= "center"}
+itemFrequencyPlot(tr_ptype_dist, topN = 16, ylab= "Product Type Frequency", col=brewer.pal(8,'Pastel2'), cex=1 ) #Retailers - Pthpe
+```
+
+```{r fig.cap= "Figure 11. Items frequency plot for Electronidex 30 days transactions for retailers", echo=FALSE, fig.align= "center"}
+itemFrequencyPlot(tr_product_dist, topN = 10, ylab= "Product Frequency", col=brewer.pal(8,'Pastel2'), cex=1) #Retailers - Product
+```
+
+
+
+# Valorations of business incorporation
+
+The decision of busieness incorporation should be taken considering the following insights.
+* Electronidex is an online business whose main revenue source comes from the sales of Laptops and Desktops.  Taking into consideration that Blackweell Electronics's main profits come from displays and consoles, the acquisition of the company would  not only make Blackwell Electronics strengthen in Computers sales but will also boost the sales of displays (which include monitors).  
+* The clientele of Electronidex comes from two sources, final consumers and retailers. Each of them represents around the 50% of the transactions of the company. Acquiring a company with a strong presence in a retailing market is a great chance for enlarging the categories that Blackwell currently sells.  
+* The clientele of retailers of Electronidex can be classified into two groups. One group buying Gaming PC's and Monitors and another group buying non Gaming Computers and Monitors.  
+* Acquiring Electronidex and its portfolio would mean having specialized products for the gaming market, and would allow Blackwell Electronics to acquire the marketshare of Electronidex and grow it with its company's presence in both retail market and consumer market.  
+* The final consumers of Electronidex have a high transactions frequency of Apple products, not only laptops and desktops but also headphones. Apple Earpods has a high impact on total sales of headphones of the company, lifting it to the top3 category importance when refering to purchasing frequency for final consumers.

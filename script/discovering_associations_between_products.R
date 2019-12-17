@@ -93,11 +93,13 @@ for (i in 1:length(transactions@itemInfo$labels)){
 # Print the product names that have not found a match
 not_found_names
 
-# Change the product types that contain the wors "Gaming" or "Game" in their product name to a new category called "Gaming"
+# Change the product types that contain the wors "Gaming", "Game" or "Gamer" in their product name to a new category called "Gaming"
 # gaming_indexes <- grepl("Gaming",transactions@itemInfo$labels)
 # game_indexes <- grepl("Game",transactions@itemInfo$labels)
+# gamer_indexes <- grepl("Gamer",transactions@itemInfo$labels)
 # categories_vector[gaming_indexes] <- "Gaming"
 # categories_vector[game_indexes] <- "Gaming"
+# categories_vector[gamer_indexes] <- "Gaming"
 
 # Group 'Laptops' and 'Desktop' under one category named 'PC' ####
 #categories_vector[categories_vector == 'Laptops' | categories_vector == 'Desktop'] <- 'PC'
@@ -118,6 +120,9 @@ categories_vector_mapped <- c()
 
 # Aggregate by categories ####
 transactions_categories <- aggregate(transactions,categories_vector)
+
+# Visualize the transactions by categories ####
+itemFrequencyPlot(transactions_categories, topN=nrow(itemInfo(transactions_categories)), type='absolute',col=brewer.pal(8,'Pastel2'), main="Category Frequency Plot", ylab='Category Frequency (absolute)', cex=1, xlab='Categories')
 
 # Inspect rules by categories ####
 rules_categories <- apriori(transactions_categories, parameter = list(support = 0.1, confidence = 0.1, minlen=2))
@@ -149,16 +154,19 @@ for (i in 1:length(transactions@itemInfo$labels)){
 for (category in unique(categories_vector)){
   transactions_df[,category] <- rowSums(transactions_df[product_types_list[[category]]])
 }
-# Calculate who is a customer and who is a distributor based on the items bought and save the indices to two different vectors
-transactions_df$VariousItems <- rowSums(transactions_df[,unique(categories_vector)] > 1)
-# If a transactions contains more than 1 items of the same category, it is considered a distributor
-customers_indices <- which(transactions_df$VariousItems == 0)
-distributors_indices <- which(transactions_df$VariousItems > 0)
+# Calculate who is a customer and who is a distributor based on whether they bought two items of the same category or not and save the indices to two different vectors
+distributors_indices <- which(rowSums(transactions_df[,unique(categories_vector)] > 1) > 0)
+# Add transactions with more than one of the 'PC' types to distributors
+desktop_1 <- intersect(which(transactions_df$Desktop==1),which(transactions_df$Laptops==1))
+desktop_2 <- intersect(which(transactions_df$Laptops==1),which(transactions_df$`Gaming Pc` == 1))
+desktop_3 <- intersect(which(transactions_df$`Gaming Pc` == 1), which(transactions_df$Desktop==1))
+desktops_indices <- union(union(desktop_1,desktop_2),desktop_3)
+distributors_indices <- union(distributors_indices,desktops_indices)
 
 # Create the transactions containing only customers rows and only distributors rows, separated by product names and by product types
-transactions_customers_items_df <- transactions_dataframe[customers_indices,]
+transactions_customers_items_df <- transactions_dataframe[-distributors_indices,]
 transactions_distributors_items_df <- transactions_dataframe[distributors_indices,]
-transactions_customers_categories_df <- transactions_categories_dataframe[customers_indices,]
+transactions_customers_categories_df <- transactions_categories_dataframe[-distributors_indices,]
 transactions_distributors_categories_df <- transactions_categories_dataframe[distributors_indices,]
 # Create transactions tables from the dataframes ####
 transactions_customers_items <- as(transactions_customers_items_df,'transactions')
@@ -174,13 +182,71 @@ rules_distributors_categories <- apriori(transactions_distributors_categories, p
 rules_distributors_categories_by_conf <- sort(rules_distributors_categories, by = "confidence")
 inspect(rules_distributors_categories_by_conf)
 
-# Take the Laptops and Desktops off the rhs for the customers_catgories transactions ####
-small_categories <- unique(categories_vector)[(unique(categories_vector) != 'Desktop') & (unique(categories_vector) != 'Laptops')]
-rules_customers_categories <- apriori(transactions_customers_categories, parameter = list(support = 0.01, confidence = 0.1, minlen=2), appearance = list(rhs = small_categories))
-rules_customers_categories_by_conf <- sort(rules_customers_categories, by = "lift")
-inspect(rules_customers_categories_by_conf)
+# Create vectors for the top categories, the top apple products, and the gaming computers to later investigate their rules ####
+top_categories <- c('Desktop','Laptops')
+apple_top_products <- c('iMac','Apple Earpods','Apple MacBook Air')
+gaming_computers <- c('Gaming Pc')
 
-# Take the Laptops and Desktops off the rhs for the distributors_categories transactions ####
-rules_distributors_categories <- apriori(transactions_distributors_categories, parameter = list(support = 0.01, confidence = 0.1, minlen=2), appearance = list(rhs = small_categories))
+# Put the Laptops and Desktops on the lhs for the customers_catgories transactions ####
+rules_customers_categories <- apriori(transactions_customers_categories, parameter = list(support = 0.005, confidence = 0.1, minlen=2), appearance = list(lhs = top_categories))
+rules_customers_categories_by_conf <- sort(rules_customers_categories, by = "lift")
+rules_customers_categories_by_conf <- rules_customers_categories_by_conf[!is.redundant(rules_customers_categories_by_conf)]
+inspect(rules_customers_categories_by_conf)
+plot(rules_customers_categories_by_conf, method="graph", control=list(type="items"))
+
+# Put the Laptops and Desktops on the lhs for the distributors_categories transactions ####
+rules_distributors_categories <- apriori(transactions_distributors_categories, parameter = list(support = 0.01, confidence = 0.2, minlen=2), appearance = list(lhs = top_categories))
 rules_distributors_categories_by_conf <- sort(rules_distributors_categories, by = "lift")
+rules_distributors_categories_by_conf <- rules_distributors_categories_by_conf[!is.redundant(rules_distributors_categories_by_conf)]
 inspect(rules_distributors_categories_by_conf)
+plot(rules_distributors_categories_by_conf, method="graph", control=list(type="items"))
+
+# Put the iMac on the lhs for the customers_categories transactions ####
+rules_customers_items <- apriori(transactions_customers_items, parameter = list(support = 0.0001, confidence = 0.025, minlen=2), appearance = list(lhs = 'iMac'))
+rules_customers_items_by_conf <- sort(rules_customers_items, by = "lift")
+rules_customers_items_by_conf <- rules_customers_items_by_conf[!is.redundant(rules_customers_items_by_conf)]
+inspect(rules_customers_items_by_conf)
+plot(rules_customers_items_by_conf, method="graph", control=list(type="items"))
+
+# Put the iMac on the lhs for the distributors_categories transactions ####
+rules_distributors_items <- apriori(transactions_distributors_items, parameter = list(support = 0.01, confidence = 0.1, minlen=2), appearance = list(lhs = 'iMac'))
+rules_distributors_items_by_conf <- sort(rules_distributors_items, by = "lift")
+rules_distributors_items_by_conf <- rules_distributors_items_by_conf[!is.redundant(rules_distributors_items_by_conf)]
+inspect(rules_distributors_items_by_conf)
+plot(rules_distributors_items_by_conf, method="graph", control=list(type="items"))
+
+# Plot the proportion of Retailers buying multiple Gaming Pcs (which will be considered Gaming retailers) ####
+retailers_buying_one_gaming_pc <- sum(transactions_df['Gaming Pc'] > 0) - sum(transactions_customers_categories_df['Gaming Pc'] > 0) - sum(transactions_df['Gaming Pc'] > 1)
+retailers_buying_multiple_gaming_pc <- sum(transactions_df['Gaming Pc'] > 1)
+multiple_gaming_pcs <- data.frame (type = c("One Gaming PC", "Multiple Gaming PCs"), number = c(retailers_buying_one_gaming_pc,retailers_buying_multiple_gaming_pc), prop = c(retailers_buying_one_gaming_pc/(retailers_buying_one_gaming_pc+retailers_buying_multiple_gaming_pc), retailers_buying_multiple_gaming_pc/(retailers_buying_multiple_gaming_pc + retailers_buying_one_gaming_pc)) )
+ggplot( data = multiple_gaming_pcs, aes( x= "", y = number,  fill = type))+
+  geom_bar(stat = "identity", color = "white")+
+  coord_polar("y", start=0)+
+  scale_fill_brewer(palette="Blues")+
+  theme_void()+
+  geom_text(aes(label = paste0(round(number),  " - ", round(prop*100), "%")), position = position_stack(vjust = 0.5)) +
+  ggtitle('Proportion of Retailers buying multiple Gaming PCs')
+
+# Plot the proportion of Retailers buying Gamingg Pcs ####
+retailers_buying_gaming_pc <- sum(transactions_distributors_categories_df['Gaming Pc'] > 0)
+retailers_not_buying_gaming_pc <- 4822 - sum(transactions_distributors_categories_df['Gaming Pc'] > 0)
+buying_gaming_pcs <- data.frame (type = c("Buying Gaming PCs", "Not Buying Gaming PCs"), number = c(retailers_buying_gaming_pc,retailers_not_buying_gaming_pc), prop = c(retailers_buying_gaming_pc/(retailers_buying_gaming_pc+retailers_not_buying_gaming_pc), retailers_not_buying_gaming_pc/(retailers_buying_gaming_pc + retailers_not_buying_gaming_pc)) )
+ggplot( data = buying_gaming_pcs, aes( x= "", y = number,  fill = type))+
+  geom_bar(stat = "identity", color = "white")+
+  coord_polar("y", start=0)+
+  scale_fill_brewer(palette="Blues")+
+  theme_void()+
+  geom_text(aes(label = paste0(round(number),  " - ", round(prop*100), "%")), position = position_stack(vjust = 0.5)) +
+  ggtitle('Proportion of Retailers buying Gaming PCs')
+
+# Plot the percentage of items bought in Distributors transactions vs in Customers transactions ####
+items_customers <- sum(size(transactions_customers_items))
+items_distributors <- sum(size(transactions_distributors_items))
+items_transaction_distribution <- data.frame (type = c("Customer number of items", "Distributors number of items"), number = c(items_customers,items_distributors), prop = c(items_customers/(items_customers+items_distributors), items_distributors/(items_customers + items_distributors)) )
+ggplot( data = items_transaction_distribution, aes( x= "", y = number,  fill = type))+
+  geom_bar(stat = "identity", color = "white")+
+  coord_polar("y", start=0)+
+  scale_fill_brewer(palette="Blues")+
+  theme_void()+
+  geom_text(aes(label = paste0(round(number),  " - ", round(prop*100), "%")), position = position_stack(vjust = 0.5)) +
+  ggtitle('Proportion of Retailers buying Gaming PCs')
